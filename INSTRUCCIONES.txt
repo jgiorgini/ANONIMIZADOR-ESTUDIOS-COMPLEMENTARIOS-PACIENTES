@@ -1,0 +1,5 @@
+La app necesita dos archivos de PDF.js, versión fija 3.11.174:
+  vendor/pdf.min.js
+  vendor/pdf.worker.min.js
+
+NO se carga código remoto desde el navegador. Para obtenerlos en su computadora ejecute PREPARAR_LIBRERIAS.ps1 siguiendo LEEME.txt.
