@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' data: blob:; script-src 'self'; style-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Anonimizador LAB Web — prototipo local</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="vendor/pdf.min.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div><h1>Anonimizador LAB <small>Web · prototipo</small></h1><p>Procesamiento en este navegador. No se cargan documentos a un servidor.</p></div>
+    <span class="privacy">LOCAL · SIN API</span>
+  </header>
+  <main>
+    <div class="actions">
+      <button id="openBtn">Abrir PDF o imagen</button><input id="fileInput" type="file" accept=".pdf,application/pdf,image/*" hidden>
+      <button id="pasteBtn">Pegar Ctrl+V</button>
+      <button id="prev" class="subtle">◀ Anterior</button><button id="next" class="subtle">Siguiente ▶</button>
+      <button id="undo" class="subtle">Deshacer</button>
+      <button id="confirmAll" class="primary teal">✓ CONFIRMAR TODO</button>
+      <button id="confirmExport" class="primary blue">✓ CONFIRMAR Y EXPORTAR</button>
+    </div>
+    <div class="settings">
+      <label>Tipo <select id="type"><option value="lab">Laboratorio</option><option value="other">Otro estudio</option></select></label>
+      <label>Fecha <input id="date" type="text" placeholder="dd/mm/aaaa" size="11"></label>
+      <label>Aplicar recuadro <select id="scope"><option value="single">Solo esta página</option><option value="visible">Páginas visibles</option><option value="all">Todas las páginas</option></select></label>
+      <label>Mostrar <select id="visible"><option>1</option><option>2</option><option selected>4</option></select></label>
+      <label>Salida <select id="mode"><option value="auto">Automático</option><option value="copy">Copiar</option><option value="save">Guardar</option></select></label>
+      <label>Copiar hasta <select id="copyLimit"><option selected>1</option><option>2</option><option>3</option><option>4</option></select></label>
+      <button id="saveAs" class="subtle">Guardar PDF</button>
+    </div>
+    <p id="status" class="status" role="status">Abrí un archivo, arrastralo a esta ventana o pegá una captura.</p>
+    <div id="warning" class="warning" hidden></div>
+    <div id="pageGrid" class="pages" aria-live="polite"></div>
+    <section id="textSection" class="text-panel" hidden>
+      <h2>Texto copiado — revisar antes de compartir</h2>
+      <p>El programa propone quitar líneas identificatorias. También revisá nombres no etiquetados y datos indirectos.</p>
+      <textarea id="textArea" rows="16" spellcheck="false"></textarea>
+      <div class="text-actions"><button id="copyText" class="primary blue">Copiar texto revisado</button></div>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <footer>Prototipo para validación con documentos ficticios. No garantiza anonimización irreversible. Revisá cada página antes de compartir.</footer>
+</body>
+</html>
