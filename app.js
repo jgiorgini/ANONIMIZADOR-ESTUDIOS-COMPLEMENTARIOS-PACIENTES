@@ -1,4 +1,4 @@
-/* Anonimizador LAB Web v0.3: procesamiento en memoria del navegador; validar con casos de prueba. */
+/* Anonimizador LAB Web v0.4: procesamiento en memoria del navegador; validar con casos de prueba. */
 'use strict';
 const $=id=>document.getElementById(id);
 const state={pages:[],history:[],kind:'',source:'',text:'',initializing:false};
@@ -127,8 +127,38 @@ function render(){
  });
 }
 function checkSafe(){const unresolved=[];const clinical=[];state.pages.forEach((p,i)=>{if(!p.handled&&!p.noHeader)unresolved.push(i+1);for(const box of p.boxes){if(box.y>.25&&box.h>.35)clinical.push(i+1);if(p.lines.length){for(const line of p.lines){if(line.y>box.y+.003&&line.y<box.y+box.h&&/\b(?:glucosa|creatinina|colesterol|triglic[eé]ridos|hemoglobina|potasio|ferritina|urea|resultado|ldl|hdl|plaquetas|vitamina)\b/i.test(line.text))clinical.push(i+1);}}}});if(unresolved.length)throw new Error('Faltan encabezados en páginas '+unresolved.join(', ')+'. Marcá recuadros o «Sin encabezado».');if(clinical.length)throw new Error('Posible ocultación de datos clínicos en páginas '+[...new Set(clinical)].join(', ')+'. Ajustá los recuadros.');if(ui.type.value==='lab'&&!/^\d{2}\/\d{2}\/\d{4}$/.test(ui.date.value.trim()))throw new Error('Confirmá una fecha válida (dd/mm/aaaa) para el laboratorio.');}
-function finalizedCanvas(page){const src=page.canvas,can=document.createElement('canvas');can.width=src.width;can.height=src.height;let c=can.getContext('2d',{alpha:false});c.drawImage(src,0,0);for(const b of page.boxes){c.fillStyle='#fff';c.fillRect(Math.max(0,Math.floor(b.x*can.width)),Math.max(0,Math.floor(b.y*can.height)),Math.ceil(b.w*can.width)+2,Math.ceil(b.h*can.height)+2);}const header=page.boxes.find(b=>b.type==='header');if(header&&ui.date.value.trim()){c.fillStyle='#111';c.font=`bold ${Math.max(14,Math.round(can.width/65))}px Arial`;c.textBaseline='top';const top=Math.max(2,Math.round(header.y*can.height)+3);c.fillText(`${documentName()} ${ui.date.value.trim()}`,Math.round(can.width*.018),top);}return can;}
-async function exportDocument(force=null){try{if(!state.pages.length){toast('Abrí primero un documento');return;}if(!confirmAll())return;checkSafe();let mode=force||ui.mode.value;if(mode==='auto')mode=state.pages.length===1?'copy':'save';/* La elección explícita «Copiar» incluye todas las páginas o informa un error; nunca exporta solo una parte. */if(mode==='copy'){await copyImages();return;}let blob=await makePDF();const a=document.createElement('a');const obj=URL.createObjectURL(blob);a.href=obj;a.download=(ui.type.value==='lab'?'LABORATORIO':'ESTUDIO')+'_'+((ui.date.value||'SIN_FECHA').replaceAll('/',''))+'_desidentificado.pdf';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),60000);toast('PDF preparado para guardar');announce(`PDF generado: ${state.pages.length} páginas. Revisá el archivo descargado antes de compartir.`);}catch(e){announce(e.message,true);}}
+// Dibuja la fecha en una BANDA NUEVA fuera de la superficie clínica original.
+// Esto evita perderla cuando el usuario marca un encabezado con un recuadro manual
+// y garantiza que ninguna fecha tape resultados. Mismo comportamiento en PDF y copia.
+function finalizedCanvas(page){
+ const src=page.canvas;
+ const date=ui.date.value.trim();
+ const isLab=ui.type.value==='lab';
+ const band=isLab&&date?Math.max(44,Math.round(src.width*.043)):0;
+ const can=document.createElement('canvas');
+ can.width=src.width;
+ can.height=src.height+band;
+ const c=can.getContext('2d',{alpha:false});
+ c.fillStyle='#fff';
+ c.fillRect(0,0,can.width,can.height);
+ c.drawImage(src,0,band);
+ // Ocultaciones relativas a la página original, desplazadas por la nueva banda.
+ for(const b of page.boxes){
+  c.fillStyle='#fff';
+  c.fillRect(Math.max(0,Math.floor(b.x*src.width)),
+             band+Math.max(0,Math.floor(b.y*src.height)),
+             Math.ceil(b.w*src.width)+2,
+             Math.ceil(b.h*src.height)+2);
+ }
+ if(band){
+  c.fillStyle='#141414';
+  c.font=`600 ${Math.max(18,Math.round(src.width*.019))}px Arial`;
+  c.textBaseline='middle';
+  c.fillText(`LABORATORIO ${date}`,Math.max(16,Math.round(src.width*.019)),band*.50);
+ }
+ return can;
+}
+async function exportDocument(force=null){try{if(!state.pages.length){toast('Abrí primero un documento');return;}if(!confirmAll())return;checkSafe();let mode=force||ui.mode.value;if(mode==='auto')mode=state.pages.length===1?'copy':'save';/* La elección explícita «Copiar» incluye todas las páginas o informa un error; nunca exporta solo una parte. */if(mode==='copy'){await copyImages();return;}let blob=await makePDF();const a=document.createElement('a');const obj=URL.createObjectURL(blob);a.href=obj;a.download=(ui.type.value==='lab'?'LABORATORIO':'ESTUDIO')+'_'+((ui.date.value||'SIN_FECHA').replaceAll('/',''))+'_desidentificado.pdf';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),60000);toast('PDF preparado · comprobá la descarga');announce(`PDF generado: ${state.pages.length} páginas${ui.type.value==='lab'?' · fecha visible '+ui.date.value.trim():''}. Revisá el archivo descargado antes de compartir.`);}catch(e){announce(e.message,true);}}
 async function copyImages(){if(!window.isSecureContext||!navigator.clipboard?.write)throw new Error('El navegador no permite copiar imágenes aquí. Usá HTTPS o «Guardar PDF».');const sources=state.pages.map(finalizedCanvas);const maxWidth=Math.max(...sources.map(c=>c.width));const scale=Math.min(1,1800/maxWidth);const width=Math.round(maxWidth*scale);const height=Math.ceil(sources.reduce((sum,c)=>sum+c.height*scale,0))+Math.max(0,sources.length-1)*8;if(height>30000||width*height>65000000)throw new Error('El estudio es demasiado largo para copiarlo íntegro como una sola imagen sin perder legibilidad. Elegí «Guardar» para exportar todas las páginas en PDF.');const out=document.createElement('canvas');out.width=width;out.height=height;const c=out.getContext('2d',{alpha:false});c.fillStyle='white';c.fillRect(0,0,width,height);let y=0;for(let s of sources){c.drawImage(s,0,y,Math.round(s.width*scale),Math.round(s.height*scale));y+=Math.round(s.height*scale)+8;}const blob=await new Promise((resolve,reject)=>out.toBlob(b=>b?resolve(b):reject(new Error('No se pudo preparar PNG')),'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);toast('IMAGEN COPIADA · Pegá con Ctrl+V');announce(`Imagen copiada: ${state.pages.length} página(s) unidas en una sola imagen. Pegá con Ctrl+V y revisá que se lean todos los resultados.`);}
 function ascii(s){return new TextEncoder().encode(s);}function joinBytes(parts){const length=parts.reduce((n,b)=>n+b.length,0),out=new Uint8Array(length);let i=0;for(const b of parts){out.set(b,i);i+=b.length;}return out;}
 function jpegBytes(canvas){const b64=canvas.toDataURL('image/jpeg',.96).split(',')[1];let binary=atob(b64),out=new Uint8Array(binary.length);for(let i=0;i<out.length;i++)out[i]=binary.charCodeAt(i);return out;}

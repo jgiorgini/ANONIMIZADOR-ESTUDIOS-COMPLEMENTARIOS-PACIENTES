@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' data: blob:; script-src 'self'; style-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>Anonimizador LAB Web v0.3 — encabezados y copia completa</title>
+  <title>Anonimizador LAB Web v0.4 — fecha visible en exportaciones</title>
   <link rel="stylesheet" href="styles.css">
   <script defer src="vendor/pdf.min.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
   <header class="top">
-    <div><h1>Anonimizador LAB <small>Web v0.3 · vista completa</small></h1><p>Procesamiento en este navegador. No se cargan documentos a un servidor.</p></div>
+    <div><h1>Anonimizador LAB <small>Web v0.4 · vista completa</small></h1><p>Procesamiento en este navegador. No se cargan documentos a un servidor.</p></div>
     <span class="privacy">LOCAL · SIN API</span>
   </header>
   <main>
@@ -24,7 +24,7 @@
     </div>
     <div class="settings">
       <label>Tipo <select id="type"><option value="lab">Laboratorio</option><option value="other">Otro estudio</option></select></label>
-      <label>Fecha <input id="date" type="text" placeholder="dd/mm/aaaa" size="11"></label>
+      <label>Fecha del estudio <input id="date" type="text" placeholder="dd/mm/aaaa" size="11"></label>
       <label>Aplicar recuadro <select id="scope"><option selected value="all">Todas las páginas</option><option value="single">Solo esta página</option></select></label>
       <label>Salida <select id="mode"><option value="auto">Automático</option><option value="copy">Copiar imagen completa</option><option value="save">Guardar PDF completo</option></select></label>
       <span class="mode-note" id="modeNote">Automático: una página copia imagen; varias guardan el PDF completo.</span>
