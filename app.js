@@ -1,4 +1,4 @@
-/* Anonimizador LAB Web v0.4: procesamiento en memoria del navegador; validar con casos de prueba. */
+/* Anonimizador LAB Web v0.5: procesamiento en memoria del navegador; validar con casos de prueba. */
 'use strict';
 const $=id=>document.getElementById(id);
 const state={pages:[],history:[],kind:'',source:'',text:'',initializing:false};
@@ -47,6 +47,21 @@ function proposeHeader(lines){
 }
 function proposeFooter(lines){for(const row of lines){if(row.y>.70&&/este protocolo fue validado|copia fiel del original|firma digital|acceder a sus informes|laboratorio habilitado/i.test(row.text))return clamp(row.y-.006,.7,.96);}return null;}
 function newPage(canvas,lines=[]){return {canvas,boxes:[],headerProposal:proposeHeader(lines),footerProposal:null,noHeader:false,handled:false,lines};}
+// Un recuadro manual puede cubrir correctamente un encabezado sin haber sido
+// marcado por el detector. Verificamos posiciones antes de exigir otra acción.
+const SENSITIVE_HEADER_RE=/(?:\bpaciente\s*[:#-]|\bpatient\s*[:#-]|\bnombre\s+(?:del\s+)?paciente\b|\bd\.?n\.?i\.?\s*[:#-]?\s*\d|\bdocumento\s*[:#-]|\bprotocolo\s*(?:n[°ºo.]*)?\s*[:#-]|\bhistoria\s+cl[ií]nica\s*[:#-]|\bf\.?\s*nac\.?\s*[:#-]|\bfecha\s+de\s+nacimiento\s*[:#-]|\bafiliad[oa]\s*[:#-])/i;
+function sensitiveHeaderLines(p){return p.lines.filter(r=>r.y<.55&&SENSITIVE_HEADER_RE.test(r.text));}
+function broadMaskCoversRow(box,row){return box.x<=.15&&box.x+box.w>=.85&&row.y>=box.y+.002&&row.y<=box.y+box.h-.005;}
+function hasManualHeaderMask(p){return p.boxes.some(b=>b.y<.30&&b.x<=.15&&b.x+b.w>=.85&&b.h>=.025);}
+function uncoveredSensitiveRows(p){return sensitiveHeaderLines(p).filter(row=>!p.boxes.some(box=>broadMaskCoversRow(box,row)));}
+function headerResolved(p){
+ const sensitive=sensitiveHeaderLines(p);
+ // La opción SIN ENCABEZADO nunca exime de cubrir identificadores efectivamente detectados.
+ if(sensitive.length)return uncoveredSensitiveRows(p).length===0;
+ // Para documentos escaneados no hay texto evaluable: recuadro o revisión explícita.
+ return p.noHeader||p.handled||hasManualHeaderMask(p);
+}
+
 async function openFile(file){if(!file)return;state.pages=[];state.history=[];state.kind='';ui.date.value='';$('textSection').hidden=true;$('pageGrid').hidden=false;announce('Leyendo '+file.name+'…');try{
  if(file.type==='application/pdf'||/\.pdf$/i.test(file.name))await readPDF(file);
  else if(file.type.startsWith('image/'))await readImage(file);
@@ -62,12 +77,20 @@ function showText(text){state.kind='text';state.text=text;state.pages=[];$('page
 function allTargets(clicked){return ui.scope.value==='all'?state.pages.map((_,i)=>i):[clicked];}
 function snapshot(){state.history.push(state.pages.map(p=>({boxes:p.boxes.map(b=>({...b})),headerProposal:p.headerProposal,footerProposal:p.footerProposal,noHeader:p.noHeader,handled:p.handled})));if(state.history.length>30)state.history.shift();}
 function undo(){const ss=state.history.pop();if(!ss){toast('Sin cambios para deshacer');return;}state.pages.forEach((p,i)=>Object.assign(p,ss[i]));render();}
-function toggleNoHeader(i){snapshot();const p=state.pages[i];p.noHeader=!p.noHeader;p.handled=p.noHeader||p.boxes.some(b=>b.type==='header');if(p.noHeader)p.headerProposal=null;render();}
-function confirmAll(){if(!state.pages.length){toast('Primero abrí un documento');return false;}snapshot();for(const p of state.pages){if(p.headerProposal!==null&&!p.handled){p.boxes.push({...p.headerProposal,type:'header'});p.handled=true;p.headerProposal=null;}}render();let missing=state.pages.map((p,i)=>!p.handled&&!p.noHeader?i+1:null).filter(Boolean);if(missing.length){announce(`Falta revisar encabezado en página(s) ${missing.join(', ')}. Marcá el recuadro o «Sin encabezado».`,true);return false;}toast('Encabezados confirmados');return true;}
+function toggleNoHeader(i){snapshot();const p=state.pages[i];p.noHeader=!p.noHeader;p.handled=p.noHeader||p.boxes.some(b=>b.type==='header')||hasManualHeaderMask(p);if(p.noHeader)p.headerProposal=null;render();}
+function confirmAll(){
+ if(!state.pages.length){toast('Primero abrí un documento');return false;}
+ const toConfirm=state.pages.filter(p=>p.headerProposal!==null&&!p.handled);
+ if(toConfirm.length){snapshot();for(const p of toConfirm){p.boxes.push({...p.headerProposal,type:'header'});p.handled=true;p.headerProposal=null;}}
+ render();
+ const pending=state.pages.map((p,i)=>!headerResolved(p)?i+1:null).filter(Boolean);
+ if(pending.length){announce(`Revisá los identificadores en página(s) ${pending.join(', ')}. Marcá un recuadro que los cubra, o «Sin encabezado» cuando realmente no exista.`,true);return false;}
+ return true;
+}
 function render(){
  const grid=$('pageGrid');grid.replaceChildren();
  if(!state.pages.length)return;
- const unresolved=state.pages.filter(p=>!p.handled&&!p.noHeader&&p.headerProposal===null).length;
+ const unresolved=state.pages.filter(p=>!headerResolved(p)&&p.headerProposal===null).length;
  $('status').textContent=`${state.pages.length} páginas visibles en desplazamiento continuo · ${unresolved} encabezados sin resolver · Arrastrá para ocultar un área. Por defecto se replica en todo el estudio.`;
  $('warning').hidden=true;
  // No se duplica el bitmap original: cada página conserva un único canvas de origen.
@@ -75,7 +98,7 @@ function render(){
    let card=document.createElement('article');card.className='page-card';
    let top=document.createElement('div');top.className='page-top';
    let title=document.createElement('span');title.textContent=pageDescription(i);top.append(title);
-   if(p.headerProposal===null){
+   if(p.headerProposal===null&&!headerResolved(p)){
      let btn=document.createElement('button');btn.textContent=p.noHeader?'✓ SIN ENCABEZADO':'SIN ENCABEZADO (revisado)';
      btn.title='Usá esta excepción solo cuando comprobaste que no hay información del paciente en esta página.';
      btn.onclick=()=>toggleNoHeader(i);top.append(btn);
@@ -91,13 +114,13 @@ function render(){
    overlay.width=overlayWidth;overlay.height=Math.round(overlayWidth*p.canvas.height/p.canvas.width);
    paper.append(overlay);card.append(paper);
    let note=document.createElement('div');note.className='page-note';
-   note.textContent=p.headerProposal!==null?'Ámbar: encabezado propuesto; se confirmará al exportar.':p.noHeader?'Página revisada: sin encabezado.':p.handled?'Encabezado ocultado.':'Sin límite automático: cubrí identificadores o marcá «Sin encabezado».';
+   note.textContent=p.headerProposal!==null?'Ámbar: encabezado propuesto; se confirmará al exportar.':p.noHeader?'Página revisada: sin encabezado.':headerResolved(p)?'Encabezado cubierto.':'Sin límite automático: cubrí identificadores o marcá «Sin encabezado».';
    card.append(note);grid.append(card);
    const c=overlay.getContext('2d');
    function paint(){
      c.clearRect(0,0,overlay.width,overlay.height);
      function draw(b,proposal){
-       c.fillStyle=proposal?'rgba(255,165,0,0.33)':'rgba(0,0,0,0.90)';
+       c.fillStyle=proposal?'rgba(255,165,0,0.33)':'rgba(0,0,0,1)';
        c.strokeStyle=proposal?'#ed8c00':'#070707';
        c.lineWidth=Math.max(2,overlay.width/500);
        c.fillRect(b.x*overlay.width,b.y*overlay.height,b.w*overlay.width,b.h*overlay.height);
@@ -126,7 +149,29 @@ function render(){
    });
  });
 }
-function checkSafe(){const unresolved=[];const clinical=[];state.pages.forEach((p,i)=>{if(!p.handled&&!p.noHeader)unresolved.push(i+1);for(const box of p.boxes){if(box.y>.25&&box.h>.35)clinical.push(i+1);if(p.lines.length){for(const line of p.lines){if(line.y>box.y+.003&&line.y<box.y+box.h&&/\b(?:glucosa|creatinina|colesterol|triglic[eé]ridos|hemoglobina|potasio|ferritina|urea|resultado|ldl|hdl|plaquetas|vitamina)\b/i.test(line.text))clinical.push(i+1);}}}});if(unresolved.length)throw new Error('Faltan encabezados en páginas '+unresolved.join(', ')+'. Marcá recuadros o «Sin encabezado».');if(clinical.length)throw new Error('Posible ocultación de datos clínicos en páginas '+[...new Set(clinical)].join(', ')+'. Ajustá los recuadros.');if(ui.type.value==='lab'&&!/^\d{2}\/\d{2}\/\d{4}$/.test(ui.date.value.trim()))throw new Error('Confirmá una fecha válida (dd/mm/aaaa) para el laboratorio.');}
+// No confundir el título de columna «Resultado» con un valor clínico.
+// Las determinaciones y las líneas con unidades siguen bloqueando la salida
+// si una ocultación las invade de forma apreciable.
+const CLINICAL_VALUE_RE=/(?:\bglucosa\b|\bcreatinina\b|\bcolesterol\b|\btriglic[eé]ridos\b|\bhemoglobina\b|\bpotasio\b|\bferritina\b|\burea\b|\bldl\b|\bhdl\b|\bplaquetas\b|\bvitamina\b|\bapolipoprote[ií]na\b|\bTSH\b|\bPSA\b|\bhematocrito\b|\bcalcio\b|\bsodio\b|\balb[uú]mina\b|\bferremia\b|\bfracci[oó]n de eyecci[oó]n\b|\bHbA1c\b|\b\d+(?:[.,]\d+)?\s*(?:mg\/dl|g\/dl|mmol\/l|mEq\/l|ng\/ml|U\/l|pg\/ml|nmol\/l|µUI\/ml)\b)/i;
+function checkSafe(){
+ const unresolved=[],clinical=[],identifiers=[];
+ state.pages.forEach((p,i)=>{
+  if(!headerResolved(p))unresolved.push(i+1);
+  if(uncoveredSensitiveRows(p).length)identifiers.push(i+1);
+  for(const box of p.boxes){
+   if(box.y>.25&&box.h>.35)clinical.push(i+1);
+   for(const line of p.lines){
+    // El umbral inferior evita falsos positivos por texto inmediatamente bajo la máscara.
+    if(line.y>box.y+.005&&line.y<box.y+box.h-.011&&CLINICAL_VALUE_RE.test(line.text))clinical.push(i+1);
+   }
+  }
+ });
+ if(identifiers.length)throw new Error('Hay identificadores detectados que no quedan cubiertos en páginas '+[...new Set(identifiers)].join(', ')+'. Ajustá los recuadros.');
+ if(unresolved.length)throw new Error('Falta revisar encabezado en página(s) '+unresolved.join(', ')+'. Marcá recuadros o «Sin encabezado» cuando corresponda.');
+ if(clinical.length)throw new Error('Posible ocultación de datos clínicos en páginas '+[...new Set(clinical)].join(', ')+'. Ajustá los recuadros.');
+ if(ui.type.value==='lab'&&!/^\d{2}\/\d{2}\/\d{4}$/.test(ui.date.value.trim()))throw new Error('Confirmá una fecha válida (dd/mm/aaaa) para el laboratorio.');
+}
+
 // Dibuja la fecha en una BANDA NUEVA fuera de la superficie clínica original.
 // Esto evita perderla cuando el usuario marca un encabezado con un recuadro manual
 // y garantiza que ninguna fecha tape resultados. Mismo comportamiento en PDF y copia.
